@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 03.07.2016
  */
 public class MatrixUtil {
-    private static final int OPTIMAL_THREAD_COUNT = Runtime.getRuntime().availableProcessors() * 4;
+    private static final int DEFAULT_THREAD_COUNT = Runtime.getRuntime().availableProcessors() * 4;
 
     public static int[][] concurrentMultiply(int[][] matrixA, int[][] matrixB, ExecutorService executor) throws InterruptedException, ExecutionException {
         final int matrixSize = matrixA.length;
@@ -20,29 +20,27 @@ public class MatrixUtil {
                 matrixBT[j][i] = matrixB[i][j];
             }
         }
-        Future[] futures = new Future[OPTIMAL_THREAD_COUNT];
+
         final AtomicInteger counter = new AtomicInteger();
-        for (int i = 0; i < OPTIMAL_THREAD_COUNT; i++) {
-            Future future = executor.submit(() -> MatrixUtil.threadMultiply(matrixA, matrixBT, matrixC, matrixSize, counter));
-            futures[i] = future;
-        }
+        final int threadCount;
+        if (executor instanceof ThreadPoolExecutor) threadCount = ((ThreadPoolExecutor) executor).getCorePoolSize();
+        else threadCount = DEFAULT_THREAD_COUNT;
+        Future[] futures = new Future[threadCount];
+        for (int i = 0; i < threadCount; i++)
+            futures[i] = executor.submit(() -> MatrixUtil.threadMultiply(matrixA, matrixBT, matrixC, matrixSize, threadCount, counter));
         for (Future future : futures)
             future.get();
         return matrixC;
     }
 
-    private static void threadMultiply(int[][] mA, int[][] mB, int[][] mC, int matrixSize, AtomicInteger counter){
+    private static void threadMultiply(int[][] mA, int[][] mB, int[][] mC, int matrixSize, int threadCount, AtomicInteger counter){
         int c;
         synchronized (counter) {
-            if (counter.get() >= OPTIMAL_THREAD_COUNT) return;
+            if (counter.get() >= threadCount) return;
             else c = counter.getAndIncrement();
         }
-        final int start = c*(matrixSize/OPTIMAL_THREAD_COUNT);
-        final int end;
-        if (++c < OPTIMAL_THREAD_COUNT)
-            end = c*(matrixSize/OPTIMAL_THREAD_COUNT);
-        else
-            end = matrixSize;
+        final int start = c*(matrixSize/threadCount);
+        final int end = ++c < threadCount ? c*(matrixSize/threadCount) : matrixSize;
         for (int i = start; i < end; i++) {
             doOptimizedMultiply(mA, mB, mC, matrixSize, i);
         }
